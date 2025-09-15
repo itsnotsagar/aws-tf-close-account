@@ -89,7 +89,7 @@ Before deploying this solution, ensure you have:
 1. **GitLab Runner Configuration:**
    ```bash
    # Ensure runner has required tags
-   tags: ["test-org"]
+   tags: ["test-runner"]
    
    # Install required tools on runner
    terraform --version  # >= 0.15.0
@@ -267,7 +267,7 @@ terraform destroy -auto-approve
 #### Required Tags
 ```yaml
 tags:
-  - test-org
+  - test-runner
 ```
 
 #### Required Software
@@ -431,7 +431,7 @@ The pipeline is configured in `.gitlab-ci.yml` with the following jobs:
    - 3-hour expiration for security
 
 3. **Runner Requirements:**
-   - Tagged with `test-org`
+   - Tagged with `test-runner`
    - Must have AWS credentials configured
    - Terraform and AWS CLI installed
 
