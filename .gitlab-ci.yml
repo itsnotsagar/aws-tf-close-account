@@ -1,0 +1,55 @@
+stages:
+  - terraform-plan
+  - terraform-apply
+  - terraform-destroy
+
+###############################################################################
+# Close & Suspend Module
+###############################################################################
+
+terraform-plan-close-and-suspend:
+  stage: terraform-plan
+  tags:
+    - test-runner
+  script:
+    - cd close-and-suspend/configuration
+    - terraform init
+    - terraform plan -out=tfplan
+  artifacts:
+    paths:
+      - close-and-suspend/configuration/tfplan
+      - close-and-suspend/module/lambda/aft-close-account.zip
+    expire_in: 3h
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - close-and-suspend/configuration/**/*
+        - close-and-suspend/module/**/*
+
+terraform-apply-close-and-suspend:
+  stage: terraform-apply
+  tags:
+    - test-runner
+  needs:
+    - job: terraform-plan-close-and-suspend
+      artifacts: true
+  script:
+    - cd close-and-suspend/configuration
+    - terraform init
+    - terraform apply -auto-approve tfplan
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - close-and-suspend/configuration/**/*
+        - close-and-suspend/module/**/*
+
+terraform-destroy-close-and-suspend:
+  stage: terraform-destroy
+  tags:
+    - test-runner
+  script:
+    - cd close-and-suspend/configuration
+    - terraform init
+    - terraform destroy -auto-approve
+  rules:
+    - when: manual
