@@ -130,8 +130,8 @@ def handle_account_close(account_id, acc_name):
     try:
         # Get environment variables with validation
         ct_account_id = os.getenv("CT_ACCOUNT")
-        destination_ou = os.getenv("DESTINATIONOU")
-        root_ou_id = os.getenv("ROOTOU_ID")
+        destination_ou = os.getenv("DESTINATION_OU")
+        root_ou_id = os.getenv("ROOT_OU_ID")
 
         # Validate required environment variables
         if not all(
@@ -141,9 +141,9 @@ def handle_account_close(account_id, acc_name):
             if not ct_account_id:
                 missing_vars.append("CT_ACCOUNT")
             if not destination_ou:
-                missing_vars.append("DESTINATIONOU")
+                missing_vars.append("DESTINATION_OU")
             if not root_ou_id:
-                missing_vars.append("ROOTOU_ID")
+                missing_vars.append("ROOT_OU_ID")
             raise ValueError(
                 f"Missing required environment variables: {', '.join(missing_vars)}"
             )
@@ -180,7 +180,7 @@ def handle_account_close(account_id, acc_name):
             terminate_response = sc_client.terminate_provisioned_product(
                 ProvisionedProductName=acc_name,
                 TerminateToken=str(uuid.uuid4()),
-                IgnoreErrors=False
+                IgnoreErrors=True
             )
             logger.info(f"Terminate request sent for provisioned product '{acc_name}'")
             logger.info(f"Terminate response: {json.dumps(terminate_response, default=str)}")

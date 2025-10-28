@@ -1,51 +1,26 @@
-resource "aws_lambda_code_signing_config" "this" {
-  description = "Code signing config for AFT Lambda"
-
-  allowed_publishers {
-    signing_profile_version_arns = [
-      aws_signer_signing_profile.this.arn,
-    ]
-  }
-
-  policies {
-    untrusted_artifact_on_deployment = "Warn"
-  }
-}
-
-resource "aws_signer_signing_profile" "this" {
-  name_prefix = "AwsLambdaCodeSigningAction"
-  platform_id = "AWSLambda-SHA384-ECDSA"
-
-  signature_validity_period {
-    value = 5
-    type  = "YEARS"
-  }
-  tags = var.default_tags
-}
-
 resource "aws_lambda_function" "aft-close-account-lambda" {
-  filename                = data.archive_file.aft_suspend_account.output_path
-  function_name           = "aft-close-account-lambda"
-  description             = "AFT Offboarding - Close Account Lambda"
-  role                    = aws_iam_role.aft-close-account-lambda.arn
-  handler                 = "aft-close-account.lambda_handler"
-  code_signing_config_arn = aws_lambda_code_signing_config.this.arn
-  source_code_hash        = data.archive_file.aft_suspend_account.output_base64sha256
-  runtime                 = "python3.11"
-  tags = var.default_tags
+  filename         = data.archive_file.aft_suspend_account.output_path
+  function_name    = "aft-close-account-lambda"
+  description      = "AFT Offboarding - Close Account Lambda"
+  role             = aws_iam_role.aft-close-account-lambda.arn
+  handler          = "aft-close-account.lambda_handler"
+  source_code_hash = data.archive_file.aft_suspend_account.output_base64sha256
+  runtime          = "python3.11"
+  memory_size      = 256
+  tags             = var.default_tags
   environment {
     variables = {
-      REGION        = var.region
-      CT_ACCOUNT    = var.ct_account_id
-      DESTINATIONOU = var.ct_destination_ou
-      ROOTOU_ID     = var.ct_root_ou_id
+      REGION         = var.region
+      CT_ACCOUNT     = var.ct_account_id
+      DESTINATION_OU = var.ct_destination_ou
+      ROOT_OU_ID     = var.ct_root_ou_id
+      LOG_LEVEL      = "INFO"
     }
   }
   timeout = 900
   tracing_config {
-    mode = "Active"
+    mode = "PassThrough"
   }
-  reserved_concurrent_executions = 1
 }
 
 resource "aws_lambda_event_source_mapping" "lambda_dynamodb" {
