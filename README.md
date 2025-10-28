@@ -197,8 +197,8 @@ The Lambda function uses these environment variables:
 
 - `REGION`: AWS region for operations
 - `CT_ACCOUNT`: Control Tower management account ID
-- `DESTINATIONOU`: Target OU for suspended accounts
-- `ROOTOU_ID`: Root organizational unit ID
+- `DESTINATION_OU`: Target OU for suspended accounts
+- `ROOT_OU_ID`: Root organizational unit ID
 
 ## GitLab CI/CD Pipeline
 

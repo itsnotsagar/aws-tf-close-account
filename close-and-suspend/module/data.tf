@@ -3,9 +3,14 @@ data "aws_region" "aft_management_region" {}
 
 data "aws_caller_identity" "aft_management_id" {}
 
+# Local values for Lambda configuration
+locals {
+  lambda_source_dir = "${path.module}/lambda/aft-close-account"
+}
+
 data "archive_file" "aft_suspend_account" {
   type        = "zip"
-  source_dir  = "${path.module}/lambda/aft-close-account"
+  source_dir  = local.lambda_source_dir
   output_path = "${path.module}/lambda/aft-close-account.zip"
 }
 
