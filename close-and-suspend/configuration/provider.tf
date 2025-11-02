@@ -7,9 +7,9 @@ terraform {
     }
   }
   backend "s3" {
-    bucket = "aft-management-gitlab-runner-tfstate"
-    key    = "offboarding-module.tfstate"
-    region = "eu-west-1"
+    bucket               = "aaws-tf-close-account-statefile"
+    key                  = "offboarding-module.tfstate"
+    region               = "eu-west-1"
     use_lockfile         = true # S3 native locking
     encrypt              = true
     workspace_key_prefix = "offboarding-module"

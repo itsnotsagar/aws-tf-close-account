@@ -32,7 +32,9 @@ resource "aws_iam_role_policy" "aft-account-closure-policy" {
         Sid    = "ServiceCatalogOperations"
         Effect = "Allow"
         Action = [
-          "servicecatalog:TerminateProvisionedProduct"
+          "servicecatalog:TerminateProvisionedProduct",
+          "servicecatalog:DescribeRecord",
+          "servicecatalog:DescribeProvisionedProduct"
         ]
         Resource = "*"
       },
