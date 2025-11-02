@@ -1,5 +1,259 @@
 # AWS Terraform Account Closure Automation
 
+Automate closing and suspending AWS accounts in an AWS Control Tower environment using Terraform and a Lambda function triggered by AFT audit trail DynamoDB streams.
+
+## Highlights
+
+- Event-driven: reacts to AFT audit trail stream events
+- Cross-account safe: assumes a minimal CT role for Organizations and Service Catalog actions
+- Idempotent: tracks Service Catalog termination with record polling and guarded retries
+- Observable: structured CloudWatch logging with configurable retention
+
+---
+
+## Repository structure
+
+```
+aws-tf-close-account/
+├── .gitlab-ci.yml                     # GitLab pipeline (plan/apply/destroy)
+├── close-and-suspend/
+│   ├── configuration/                 # Root Terraform stack that consumes the module
+│   │   ├── main.tf
+│   │   ├── provider.tf
+│   │   └── variables.tf
+│   └── module/                        # Terraform module (Lambda, IAM, Events)
+│       ├── data.tf
+│       ├── iam-ct.tf
+│       ├── iam..tf                    # Lambda role + inline policy
+│       ├── lambda.tf
+│       ├── variables.tf
+│       ├── versions.tf
+│       └── lambda/
+│           └── aft-close-account.py   # Lambda implementation
+└── images/
+```
+
+## What it does (workflow)
+
+1. DynamoDB stream event from AFT audit trail triggers the Lambda.
+2. Lambda looks up the target account ID in the AFT metadata table (by email index).
+3. Lambda assumes the CT management account role `aft-account-closure-role`.
+4. It terminates the Service Catalog provisioned product for the account (with guarded retry),
+5. Moves the account to the configured SUSPENDED OU,
+6. Then calls `organizations:CloseAccount` to close it.
+
+## Requirements
+
+- AWS Control Tower and AFT are deployed and operational
+- A DynamoDB audit table with streams enabled for AFT (stream ARN provided to Terraform)
+- A KMS key ARN that encrypts the audit stream (provided to Terraform)
+- SSM parameter `/aft/resources/ddb/aft-request-metadata-table-name` resolvable in the AFT account
+- IAM trust and permissions for cross-account role assumption
+- Tools:
+  - Terraform >= 0.15.0
+  - AWS CLI
+  - Python 3.11 (Lambda runtime)
+
+## Terraform at a glance
+
+The root stack is under `close-and-suspend/configuration`, and it consumes the module in `close-and-suspend/module`.
+
+### Backend and providers (from `configuration/provider.tf`)
+
+```hcl
+terraform {
+  required_version = ">= 0.15.0"
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = ">= 3.15"
+    }
+  }
+  backend "s3" {
+    bucket               = "aaws-tf-close-account-statefile"
+    key                  = "offboarding-module.tfstate"
+    region               = "eu-west-1"
+    use_lockfile         = true # note: consider DynamoDB for reliable locking
+    encrypt              = true
+    workspace_key_prefix = "offboarding-module"
+  }
+}
+
+provider "aws" {
+  region = var.region
+}
+
+# AFT account
+provider "aws" {
+  alias  = "aft"
+  region = var.region
+  assume_role {
+    role_arn    = "arn:aws:iam::123456789012:role/AWSAFTExecution"
+    external_id = "ASSUME_ROLE_ON_TARGET_ACC"
+  }
+}
+
+# CT account
+provider "aws" {
+  alias  = "ct"
+  region = var.region
+  assume_role {
+    role_arn    = "arn:aws:iam::210987654321:role/AWSAFTExecution"
+    external_id = "ASSUME_ROLE_ON_TARGET_ACC"
+  }
+}
+```
+
+### Module usage (from `configuration/main.tf`)
+
+```hcl
+module "offboarding_lambda" {
+  source                                   = "../module"
+  cloudwatch_log_group_retention           = "90"
+  region                                   = "eu-west-1"
+  aft_account_id                           = "123456789012"
+  ct_account_id                            = "210987654321"
+  ct_destination_ou                        = "ou-euup-d1e061ao"
+  ct_root_ou_id                            = "r-cuup"
+  aft-request-audit-table-encrption-key-id = "arn:aws:kms:eu-west-1:123456789012:key/5c9e23e2-3e83-4fe6-98ec-b87f11c772fb"
+  aft-request-audit-table-stream-arn       = "arn:aws:dynamodb:eu-west-1:123456789012:table/aft-request-audit/stream/2021-03-13T06:52:29.259"
+
+  default_tags = {
+    Environment = "AFT"
+    Project     = "Offboarding Automation"
+  }
+
+  # IMPORTANT: pass provider aliases to the module
+  providers = {
+    aws    = aws.aft
+    aws.ct = aws.ct
+  }
+}
+```
+
+### Module inputs (from `module/variables.tf`)
+
+- `cloudwatch_log_group_retention` (number, default 90) – CloudWatch log retention in days
+- `default_tags` (map(string)) – default resource tags
+- `region` (string, default `eu-west-1`)
+- `ct_account_id` (string) – CT management account ID
+- `aft_account_id` (string) – AFT management account ID
+- `ct_destination_ou` (string) – Destination OU for suspended accounts
+- `ct_root_ou_id` (string) – Root OU ID
+- `aft-request-audit-table-stream-arn` (string) – DynamoDB stream ARN for AFT audit table
+- `aft-request-audit-table-encrption-key-id` (string) – KMS key ARN used for the stream encryption
+
+Note: variable names include hyphens by design and are referenced as `var.aft-request-audit-table-stream-arn` in Terraform.
+
+### What the module creates
+
+In the AFT account:
+- Lambda function `aft-close-account-lambda` (runtime Python 3.11)
+- Lambda execution role `aft-close-account-lambda-role` with inline policy
+- Event source mapping from the AFT audit DynamoDB stream to the Lambda
+- CloudWatch log group `/aws/lambda/aft-close-account-lambda`
+
+In the CT account:
+- IAM role `aft-account-closure-role` that the Lambda assumes
+- Inline policy allowing limited Service Catalog and Organizations operations
+
+### Lambda environment variables
+
+- `REGION` – AWS region
+- `CT_ACCOUNT` – CT management account ID
+- `DESTINATION_OU` – OU to move accounts into prior to closure
+- `ROOT_OU_ID` – Root OU ID
+- `LOG_LEVEL` – optional, defaults to `INFO`
+
+## CI/CD (GitLab)
+
+Pipeline stages (from `.gitlab-ci.yml`):
+
+```yaml
+stages:
+  - terraform-plan
+  - terraform-apply
+  - terraform-destroy
+```
+
+Jobs:
+- `terraform-plan-close-and-suspend`
+  - Runner tag: `aws-org-runner`
+  - Runs `terraform init` and `terraform plan` in `close-and-suspend/configuration`
+  - Artifacts: `close-and-suspend/configuration/tfplan`, `close-and-suspend/module/lambda/aft-close-account.zip`
+  - Rules: trigger on `main` branch when paths under `close-and-suspend/**` change
+
+- `terraform-apply-close-and-suspend`
+  - Depends on plan job artifacts
+  - Runs `terraform apply -auto-approve tfplan`
+
+- `terraform-destroy-close-and-suspend` (manual)
+  - Destroys the stack after `terraform init`
+
+## How to deploy
+
+### Option A: via GitLab CI/CD (recommended)
+
+1. Ensure your runner has the tag `aws-org-runner` and Terraform/AWS CLI installed.
+2. Provide AWS credentials to the runner (environment variables or IAM role).
+3. Commit changes to `main` under `close-and-suspend/` to trigger plan/apply.
+
+### Option B: manual (local)
+
+```bash
+cd close-and-suspend/configuration
+terraform init
+terraform plan -out=tfplan
+terraform apply tfplan
+```
+
+## Verification
+
+- Lambda function exists: `aft-close-account-lambda` in the AFT account
+- Log group exists: `/aws/lambda/aft-close-account-lambda`
+- Event source mapping between the AFT audit DynamoDB stream and the Lambda
+- CT account has role `aft-account-closure-role` with the inline policy
+
+## Security model
+
+- The Lambda runs in the AFT account and assumes the CT role `aft-account-closure-role`.
+- Minimal permissions for:
+  - Service Catalog: terminate/describe provisioned products and records
+  - Organizations: list/move/close accounts, describe/list accounts
+  - DynamoDB Streams: read stream shards and records
+  - SSM: read the AFT metadata table name parameter
+  - KMS: decrypt for the audit stream key
+
+## Troubleshooting
+
+- Service Catalog termination keeps failing:
+  - The Lambda attempts a second termination with `IgnoreErrors=True` and then proceeds; check record status in logs.
+- No account found by email:
+  - Ensure the AFT metadata table and `emailIndex` are populated; verify the email matches the source event.
+- AssumeRole failures:
+  - Check trust policy in CT role and AFT Lambda role ARN in `iam-ct.tf`.
+- Event not triggering the Lambda:
+  - Ensure the correct stream ARN is configured and the stream is enabled on the table.
+
+## Known caveats
+
+- State locking: the S3 backend block uses `use_lockfile`, but reliable state locking in Terraform on S3 requires a DynamoDB table (set `dynamodb_table = "<table>"`).
+- Example values: account IDs, OU IDs, ARNs in examples are placeholders—replace with your real values.
+- Variable names: some inputs use hyphens—this is valid in HCL2 and used by this module.
+
+## License
+
+MIT License. See `LICENSE` for details.
+
+## References
+
+- AWS Control Tower: https://docs.aws.amazon.com/controltower/
+- AWS Organizations: https://docs.aws.amazon.com/organizations/
+- AFT: https://docs.aws.amazon.com/controltower/latest/userguide/aft-overview.html
+- AWS Lambda: https://docs.aws.amazon.com/lambda/
+- Terraform AWS Provider: https://registry.terraform.io/providers/hashicorp/aws/latest/docs
+# AWS Terraform Account Closure Automation
+
 An automated solution for closing and suspending AWS accounts in AWS Control Tower environments using Terraform and Lambda functions. This project provides a secure, event-driven approach to account lifecycle management with proper governance controls.
 
 ## Table of Contents

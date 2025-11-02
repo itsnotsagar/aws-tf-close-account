@@ -6,8 +6,8 @@ resource "aws_lambda_function" "aft-close-account-lambda" {
   handler          = "aft-close-account.lambda_handler"
   source_code_hash = data.archive_file.aft_suspend_account.output_base64sha256
   runtime          = "python3.11"
-  memory_size      = 256
   tags             = var.default_tags
+
   environment {
     variables = {
       REGION         = var.region
@@ -17,7 +17,8 @@ resource "aws_lambda_function" "aft-close-account-lambda" {
       LOG_LEVEL      = "INFO"
     }
   }
-  timeout = 900
+  timeout     = 900
+  memory_size = 512
   tracing_config {
     mode = "PassThrough"
   }

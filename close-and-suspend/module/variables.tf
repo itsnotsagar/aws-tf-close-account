@@ -39,13 +39,13 @@ variable "aft_account_id" {
 variable "ct_destination_ou" {
   type        = string
   description = "Destination OU into which Account will be moved"
-  default     = "ou-juup-d1e061ao"
+  default     = "ou-euup-d1e061ao"
 }
 
 variable "ct_root_ou_id" {
   type        = string
   description = "CT Account Root OU ID"
-  default     = "r-juup"
+  default     = "r-cuup"
 }
 
 variable "aft-request-audit-table-stream-arn" {

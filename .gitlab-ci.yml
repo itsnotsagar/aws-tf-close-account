@@ -10,7 +10,7 @@ stages:
 terraform-plan-close-and-suspend:
   stage: terraform-plan
   tags:
-    - test-runner
+    - aws-org-runner
   script:
     - cd close-and-suspend/configuration
     - terraform init
@@ -29,7 +29,7 @@ terraform-plan-close-and-suspend:
 terraform-apply-close-and-suspend:
   stage: terraform-apply
   tags:
-    - test-runner
+    - aws-org-runner
   needs:
     - job: terraform-plan-close-and-suspend
       artifacts: true
@@ -46,7 +46,7 @@ terraform-apply-close-and-suspend:
 terraform-destroy-close-and-suspend:
   stage: terraform-destroy
   tags:
-    - test-runner
+    - aws-org-runner
   script:
     - cd close-and-suspend/configuration
     - terraform init
